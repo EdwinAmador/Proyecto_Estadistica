@@ -1,0 +1,645 @@
+---
+title: "Proyecto Estadistica 1 (Bitacora 2)"
+toc: true
+format:
+  html:
+    html-math-method: katex
+    code-tools: true
+    self-contained: true
+execute:
+  warning: false
+editor: visual
+---
+
+# Paquetes usados
+
+```{r Paquetes}
+#| warning: false
+#| echo: false
+
+setwd("C:/2023/Ciclo II/Estadistica1/Proyecto Estadistica")
+# library('ProjectTemplate')
+library(janitor)
+# install.packages('dplyr', repos = 'https://cloud.r-project.org')
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(ggplot2)
+library(cowplot)
+theme_set(theme_cowplot())
+library(gridExtra)
+library(stats)
+library(xtable)
+library(ggsci)
+library(viridis)
+library(forecast)
+library(tseries)
+
+# install.packages('tidyr', repos = 'https://cloud.r-project.org')
+library(tidyverse)
+library(tidyr)
+library(cli)
+
+library(grid)
+library(gridExtra)
+# library(cowplot)
+```
+
+# Importar y limpiar los datos
+
+```{r "importar y limpiar los datos", message=FALSE}
+#| warning: false
+
+rentabilidadxENTIDADES <- read.csv("C:/2023/Ciclo II/Estadistica1/Proyecto Estadistica/RentabilidadxENTIDADES.csv", skip = 5, dec = ",") %>% remove_empty()
+
+colnames(rentabilidadxENTIDADES) <- c("Mes", "histBAC", "anuBAC", "histBCR", "anuBCR", "histBN", "anuBN", "histCCSS", "anuCCSS", "histIBP", "anuIBP", "histINS", "anuINS", "histPOP", "anuPOP", "histVP", "anuVP")
+
+rentRaw <- rentabilidadxENTIDADES
+
+rentabilidadxENTIDADES <- rentabilidadxENTIDADES %>% clean_names() %>% select(-c(hist_ibp,anu_ibp,hist_ins, anu_ins))
+
+nombres_meses <- c(
+  "ene", "feb", "mar", "abr", "may", "jun",
+  "jul", "ago", "sep", "oct", "nov", "dic"
+)
+
+rentabilidadxENTIDADES <- rentabilidadxENTIDADES %>% mutate(year = as.numeric(paste0("20",substr(mes,5,6))), month = match(substr(mes,1,3), nombres_meses))
+
+rentabilidadxENTIDADES <- rentabilidadxENTIDADES %>% 
+  mutate(mes = my(paste0(month, "-", year))) %>% 
+  select(-month,-year)
+
+rentabilidadHist <- rentabilidadxENTIDADES %>% 
+  select(matches("hist"))
+rentabilidadHist <- cbind(rentabilidadxENTIDADES[,1], rentabilidadHist)
+
+rentabilidadAnu <- rentabilidadxENTIDADES %>% 
+  select(matches("anu"))
+rentabilidadAnu <- cbind(mes = rentabilidadxENTIDADES$mes, rentabilidadAnu)
+```
+
+# Analisis descriptivo
+
+```{r}
+# Aplicar una función anónima dentro de sapply para contar datos faltantes por columna
+contadorND <- sapply(rentRaw, function(column) sum(column == "ND"))
+
+# Filtrar las columnas con NA > 0
+faltantes <- contadorND[contadorND > 0]
+
+# Crear una tabla que muestra la cantidad de datos faltantes por columna (solo las que tienen NA > 0)
+tablaND<- data.frame(
+  # Columna = names(filtered_missing),
+  Fondo = substr(names(faltantes), nchar(names(faltantes)) - 2, nchar(names(faltantes))),
+  "Datos Faltantes" = faltantes
+)
+
+# Mostrar la tabla de datos faltantes por columna
+# print(tablaND)
+tablaND %>% xtable(caption = "Cantidad de datos faltantes por fondo") %>% print(include.rownames = F)
+# %>% xtable(digits = rep(3,7), align = rep("l",7)) %>% print(include.rownames = T)
+
+```
+
+```{r "Generar tabla con estadisticos"}
+tabla<-function(data, variable){
+  mean_temp <- mean(data) %>% round(3)
+  median_temp <- median(data) %>% round(3)
+  min_temp <- min(data) %>% round(3)
+  max_temp <- max(data) %>% round(3)
+  std_dev_temp <- sd(data) %>% round(3)
+  summary_df <- data.frame(
+    Statistic = c("Media", "Mediana", "Mínimo", "Máximo", "Desviación estándar"),
+    Value = c(mean_temp, median_temp, min_temp, max_temp, std_dev_temp)
+)
+  colnames(summary_df)<-c("Estadístico", variable)
+  return(summary_df)
+}
+
+estBAC <- rentabilidadxENTIDADES$anu_bac %>% tabla("BAC")
+estBCR <- rentabilidadxENTIDADES$anu_bcr %>% tabla("BCR")
+estBN <- rentabilidadxENTIDADES$anu_bn %>% tabla("BN")
+estCCSS <- rentabilidadxENTIDADES$anu_ccss %>% tabla("CCSS")
+estPOP <- rentabilidadxENTIDADES$anu_pop %>% tabla("POP")
+estVP <- rentabilidadxENTIDADES$anu_vp %>% tabla("VP")
+estadisticos <- cbind(estBAC,BCR = estBCR[,2], BN = estBN[,2], CCSS = estCCSS[,2], POP = estPOP[,2], VP = estVP[,2]) %>% t()
+colnames(estadisticos) <- as.character(estadisticos[1, ])
+estadisticos <- estadisticos[-1, ] %>% t()
+
+
+estTex <-xtable(estadisticos, digits = rep(3,7), align = rep("l",7), caption = "Fuente: Elaboración propia con datos de SUPEN.")
+
+print(estTex, include.rownames = T)
+
+```
+
+```{r}
+# Seleccionar las columnas 2 a 7
+subset_data <- rentabilidadAnu[, 2:7]
+colnames(subset_data) <- toupper(substring(colnames(subset_data), first = 5))
+# Calcular la matriz de correlación
+correlacion <- cor(subset_data)
+
+# Crear una tabla de correlación
+tabCorrelacion <- as.data.frame(correlacion)
+
+# Mostrar la tabla de correlación
+print(tabCorrelacion)
+tabCorrelacion %>% xtable(digits = rep(3,7), align = rep("l",7)) %>% print(include.rownames = T)
+
+
+```
+
+# Graficos de linea, dispersion y cajas
+
+```{r Graficos de linea dispersion y cajas LONGER}
+# Convertir el dataframe a formato largo
+rentAnuLong <- rentabilidadAnu %>% pivot_longer(cols = -mes, names_to = "Variable", values_to = "Rendimiento")
+rentAnuLong <- rentAnuLong %>% mutate(Variable = toupper(substring(Variable, first = 5)))
+
+# GRAFICO DE LINEA
+# Crear el gráfico de líneas
+(plotLinRend <- rentAnuLong %>% ggplot(aes(x = mes, y = Rendimiento, color = Variable)) +
+  geom_line(size = 1) +
+  # labs(title = "Gráfico de Líneas de Rendimientos", x = "Fecha", y = "Rendimiento") +
+  labs(x = "Fecha", y = "Rendimiento", caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0)) +
+  theme(legend.position = "top") +
+  # scale_color_brewer(palette = "Dark2") +
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y") + 
+  scale_color_viridis(discrete = TRUE, option = "H") +
+  scale_fill_viridis(discrete = TRUE) +
+  theme(legend.position = "right")
+  )
+
+pdf("linRend.pdf", width = 10)
+plotLinRend
+dev.off()
+
+# GRAFICO DE DISPERSION
+( plotDispRend <- rentAnuLong %>% ggplot(aes(x = mes, y = Rendimiento, color = Variable)) +
+  geom_point(size = 1, alpha = 0.6) +
+  # labs(title = "Gráfico de Dispersión de Rendimientos", x = "Mes", y = "Rendimiento") +
+  labs(x = "Mes", y = "Rendimiento", caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_color_brewer(palette = "Dark2") +
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y") + 
+  scale_color_viridis(discrete = TRUE, option = "H") +
+  scale_fill_viridis(discrete = TRUE) +
+  theme(legend.position = "right")
+  )
+
+pdf("dispRend.pdf", width = 10)
+plotDispRend
+dev.off()
+
+# GRAFICO DE CAJAS
+(plotBoxRend <- rentAnuLong %>% ggplot(aes(x = Variable, y = Rendimiento,  fill = Variable)) +
+  geom_boxplot(color = "darkgrey", show.legend = F)+#(outlier.shape = NA) +  
+  # labs(title = "Gráfico de Caja de Rendimientos", x = "Variable", y = "Rendimiento") +
+  labs(x = NULL, y = "Rendimiento", caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  # scale_color_viridis(discrete = TRUE, option = "H") +
+  scale_fill_viridis(discrete = TRUE, option = "H") +
+  theme(legend.position = "right")
+)
+
+pdf("boxRend.pdf", width = 10)
+plotBoxRend
+dev.off()
+```
+
+# Distribución de los rendimientos por fondo
+
+```{r}
+data <- rentabilidadAnu[,-1]
+
+hist_list_ggplot <- lapply(names(data), function(col) {
+  ggplot(data, aes_string(x = col, fill = col)) +
+    geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+    labs(title = toupper(substring(col, first = 5)), x = "Rendimiento", y = "Cantidad")
+})
+
+histArray <- grid.arrange(grobs = hist_list_ggplot, ncol = 2)
+caption_text <- "Fuente: Elaboración propia con datos de SUPEN."
+grid.text(
+  x = 0.5,
+  y = 0.01,
+  label = caption_text,
+  just = "right"
+)
+histArray
+
+pdf("histAnu.pdf", width = 10)
+histArray <- grid.arrange(grobs = hist_list_ggplot, ncol = 2)
+grid.text(
+  x = 0.5,  # Adjust the x-coordinate to center the caption
+  y = 0.01,# Adjust the y-coordinate to set the position of the caption
+  label = "Fuente: Elaboración propia con datos de SUPEN.",
+  just = "right"
+)
+histArray
+dev.off()
+```
+
+# Resultados
+
+## Clasficación binaria
+
+```{r Clasificacion binaria}
+# Cargar las bibliotecas necesarias
+library(pROC)
+
+# Dividir los datos en conjuntos de entrenamiento y prueba
+set.seed(123)
+# trainIndex <- sample(1:nrow(rentabilidadAnu), 0.7 * nrow(rentabilidadAnu))
+data_train <- rentabilidadAnu[1:90, ]
+data_test <- rentabilidadAnu[91:180, ]
+
+# Crear una variable objetivo binaria (por ejemplo, clasificar si 'anu_bac' es mayor o igual al 0)
+data_train$binary_target <- ifelse(data_train$anu_bac >= 0, 1, 0)
+data_test$binary_target <- ifelse(data_test$anu_bac >= 0, 1, 0)
+
+# Construir un modelo de clasificación binaria (por ejemplo, regresión logística)
+model <- glm(binary_target ~ ., data = data_train, family = binomial)
+
+# Realizar predicciones en los datos de prueba
+predictions <- predict(model, newdata = data_test, type = "response")
+
+# Crear una matriz de confusión
+conf_matrix <- table(Actual = data_test$binary_target, Predicted = ifelse(predictions > 0.5, 1, 0))
+
+# Generar una curva ROC con etiquetas en español
+roc_curve <- roc(data_test$binary_target, predictions)
+plot(roc_curve, main = "Curva ROC",
+     xlab = "Tasa de Falsos Positivos (1 - Especificidad)",
+     ylab = "Tasa de Verdaderos Positivos (Sensibilidad)")
+     # col.main = "blue",
+     # col.lab = "blue",
+     # col = "blue")
+
+```
+
+```{r Autocorrelacion}
+pdf("acf.pdf")
+rentabilidadAnu %>% acf()
+dev.off()
+```
+
+```{r Estacionariedad Dickey-Fuller}
+adf.test(rentabilidadAnu$anu_bac)
+```
+
+```{r tabla ADF, message=FALSE}
+library(tseries)
+data <- rentabilidadAnu
+resultados <- c()
+# Realizar la prueba ADF para cada fondo
+for (i in 2:7) {
+  # Realizar la prueba ADF
+  adf_result <- adf.test(data[, i])
+  # Extraer el valor p y el estadístico de la prueba
+  p_value <- adf_result$p.value
+  test_statistic <- adf_result$statistic
+  # Almacenar los resultados
+  resultados <- c(resultados, c(p_value, test_statistic))
+}
+
+# Crear una tabla LaTeX con los resultados
+tabla_latex <- matrix(resultados, ncol = 2, byrow = TRUE)
+colnames(tabla_latex) <- c("Valor p", "Estadístico ADF")
+rownames(tabla_latex) <- toupper(substring(colnames(data)[2:7], first = 5))
+
+# Imprimir la tabla LaTeX
+print(xtable(tabla_latex, caption = "Resultados de la prueba ADF para las columnas 2 a 7 de rentabilidadAnu."), 
+      caption.placement = "top", 
+      include.rownames = TRUE, 
+      include.colnames = TRUE, 
+      table.placement = "h")
+```
+
+```{r Tabla KS, message=FALSE}
+library(stats)
+data <- rentabilidadAnu[, 2:7]
+# Crear una matriz para almacenar los resultados
+num_var <- ncol(data)
+resultados <- matrix(NA, ncol = 3, nrow = num_var * (num_var - 1) / 2)
+colnames(resultados) <- c("Fondo 1", "Fondo 2", "Valor p KS")
+# Realizar la prueba KS para todos los pares de variables
+row_idx <- 1
+for (i in 1:(num_var - 1)) {
+  for (j in (i + 1):num_var) {
+    var1 <- data[, i]
+    var2 <- data[, j]
+    # Realizar la prueba KS
+    ks_result <- ks.test(var1, var2)
+    # Almacenar los resultados en la matriz
+    resultados[row_idx, 1] <- toupper(substring(colnames(data)[i], first = 5))
+    resultados[row_idx, 2] <- toupper(substring(colnames(data)[j], first = 5))
+    resultados[row_idx, 3] <- round(ks_result$p.value,3)
+    row_idx <- row_idx + 1
+  }
+}
+# Ordenar los resultados por valor p de menor a mayor
+resultados <- resultados[order(resultados[, 3]), ]
+# Imprimir la tabla LaTeX
+print(xtable(resultados, caption = "Resultados de la prueba KS para todas las combinaciones de pares de variables (columnas 2 a 7) de rentabilidadAnu."),
+      digits = rep(3,3),
+      caption.placement = "top", 
+      include.rownames = FALSE, 
+      include.colnames = TRUE, 
+      table.placement = "h")
+```
+
+Como el valor p de la prueba dickey fuller es menor a $\alpha = 0.05$, se puede rechazar la hipotesis nula al $95\%$ de confianza. Por tanto como la hipotesis alternativa es que los datos se comportan de manera estacional concluimos que este es el caso.
+
+```{r Arima}
+forecast_data <- rentabilidadAnu$anu_bcr %>% ts() %>% auto.arima() %>% forecast()
+
+forecast_data %>% plot()
+```
+
+## Regresión Lineal
+
+```{r}
+# Hacer una columna con los números----------------------------------------------
+# Asegúrate de que la columna 'fecha' esté en formato de fecha
+rentabilidadAnu$mes <- as.Date(rentabilidadAnu$mes)
+
+# Calcula los números de mes secuenciales y crea una nueva columna 'numero_mes'
+rentabilidadAnuNorm <- rentabilidadAnu %>% 
+  mutate(numero_mes = as.integer(format(mes, "%Y")) * 12 + as.integer(format(mes, "%m")) - (min(as.integer(format(rentabilidadAnu$mes, "%Y")) * 12 + as.integer(format(rentabilidadAnu$mes, "%m"))) - 1))
+
+```
+
+```{r REGRESION LINEAL BAC}
+# Ajustar un modelo de regresión lineal
+modelo <- lm(anu_bac ~ numero_mes, data = rentabilidadAnuNorm)
+# Resumen del modelo
+summary(modelo)
+
+# Crear un gráfico de dispersión y de regresión con ggplot2
+(lmBac <- ggplot(rentabilidadAnuNorm, aes(x = mes, y = anu_bac)) +
+  geom_point(color = "blue"w, size = 1) +  # Puntos azules para los datos
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Línea de regresión
+  labs(title = NULL, x = "Fecha", y = "Rendimiento Bac")+#, caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0))+
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
+)
+pdf("lmBac.pdf", width = 10)
+lmBac
+dev.off()
+```
+
+```{r REGRESION LINEAL BCR}
+# Ajustar un modelo de regresión lineal
+modelo <- lm(anu_bcr ~ numero_mes, data = rentabilidadAnuNorm)
+# Resumen del modelo
+summary(modelo)
+
+# Crear un gráfico de dispersión y de regresión con ggplot2
+(lmBCR <- ggplot(rentabilidadAnuNorm, aes(x = mes, y = anu_bcr)) +
+  geom_point(color = "blue", size = 1) +  # Puntos azules para los datos
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Línea de regresión
+  labs(title = NULL, x = "Fecha", y = "Rendimiento BCR")+#, caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0))+
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
+)
+
+pdf("lmBCR.pdf", width = 10)
+lmBCR
+dev.off()
+```
+
+```{r REGRESION LINEAL BN}
+# Ajustar un modelo de regresión lineal
+modelo <- lm(anu_bn ~ numero_mes, data = rentabilidadAnuNorm)
+# Resumen del modelo
+summary(modelo)
+
+# Crear un gráfico de dispersión y de regresión con ggplot2
+(lmBN <- ggplot(rentabilidadAnuNorm, aes(x = mes, y = anu_bn)) +
+  geom_point(color = "blue", size = 1) +  # Puntos azules para los datos
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Línea de regresión
+  labs(title = NULL, x = "Fecha", y = "Rendimiento BN")+#, caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0))+
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
+)
+pdf("lmBN.pdf", width = 10)
+lmBN
+dev.off()
+```
+
+```{r REGRESION LINEAL CCSS}
+# Ajustar un modelo de regresión lineal
+modelo <- lm(anu_ccss ~ numero_mes, data = rentabilidadAnuNorm)
+# Resumen del modelo
+summary(modelo)
+
+# Crear un gráfico de dispersión y de regresión con ggplot2
+(lmCCSS <- ggplot(rentabilidadAnuNorm, aes(x = mes, y = anu_ccss)) +
+  geom_point(color = "blue", size = 1) +  # Puntos azules para los datos
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Línea de regresión
+  labs(title = NULL, x = "Fecha", y = "Rendimiento CCSS")+#, caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0))+
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
+)
+pdf("lmCCSS.pdf", width = 10)
+lmCCSS
+dev.off()
+```
+
+```{r REGRESION LINEAL POP}
+# Ajustar un modelo de regresión lineal
+modelo <- lm(anu_pop ~ numero_mes, data = rentabilidadAnuNorm)
+# Resumen del modelo
+summary(modelo)
+
+# Crear un gráfico de dispersión y de regresión con ggplot2
+(lmPOP <- ggplot(rentabilidadAnuNorm, aes(x = mes, y = anu_pop)) +
+  geom_point(color = "blue", size = 1) +  # Puntos azules para los datos
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Línea de regresión
+  labs(title = NULL, x = "Fecha", y = "Rendimiento POP")+#, caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0))+
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
+)
+pdf("lmPOP.pdf", width = 10)
+lmPOP
+dev.off()
+```
+
+```{r REGRESION LINEAL VP}
+# Ajustar un modelo de regresión lineal
+modelo <- lm(anu_vp ~ numero_mes, data = rentabilidadAnuNorm)
+# Resumen del modelo
+summary(modelo)
+
+# Crear un gráfico de dispersión y de regresión con ggplot2
+(lmVP <- ggplot(rentabilidadAnuNorm, aes(x = mes, y = anu_vp)) +
+  geom_point(color = "blue", size = 1) +  # Puntos azules para los datos
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Línea de regresión
+  labs(title = NULL, x = "Fecha", y = "Rendimiento VP")+#, caption = "Fuente: Elaboración propia con datos de SUPEN.")+
+  theme(plot.caption = element_text(hjust = 0))+
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
+)
+pdf("lmVP.pdf", width = 10)
+lmVP
+dev.off()
+```
+
+```{r lista lm}
+lmList <- list(lmBac, lmBCR, lmBN, lmCCSS, lmPOP, lmVP)
+
+grid.arrange(grobs = lmList, ncol = 2)
+caption_text <- "Fuente: Elaboración propia con datos de SUPEN."
+grid.text(
+  x = 0.5,  # Adjust the x-coordinate to center the caption
+  y = 0.01,# Adjust the y-coordinate to set the position of the caption
+  label = caption_text,
+  just = "right"
+)
+
+
+pdf("regresiones.pdf", width = 10)
+grid.arrange(grobs = lmList, ncol = 2)
+caption_text <- "Fuente: wElaboración propia con datos de SUPEN."
+grid.text(
+  x = 0.5,  # Adjust the x-coordinate to center the caption
+  y = 0.01,# Adjust the y-coordinate to set the position of the caption
+  label = caption_text,
+  just = "right"
+)
+dev.off
+```
+# Prueba de Hipótesis
+
+```{r}
+#Ya tenemos la tabla con los datos de los promedios mensuales
+puntos_especificos <- c(139, 177)  # Puntos específicos en el eje x
+
+grafico <- ggplot(data = rentabilidadAnu, aes(x = 1:nrow(rentabilidadAnu), y = anu_bac)) +
+  geom_line() +
+  geom_vline(xintercept = puntos_especificos, linetype = "dashed", color = "red") +
+  labs(title = "Gráfico de Líneas con Líneas Verticales", x = "Índice de Datos", y = "Valor de Datos")
+
+print(grafico)
+```
+
+```{r}
+# Hago un proceso para añadir al dataframe una columna con los datos de cuales son meses de pandemia y cuáles no
+# df <- data.frame(datos_numericos = rnorm(180))
+
+etiquetas <- rep("no_pandemia", 180)
+etiquetas[133:177] <- "pandemia"
+
+# Agrego dicha columna nueva
+rentabilidadAnu$etiqueta_pandemia <- etiquetas
+```
+
+
+```{r t test}
+#Código para el t.test
+t.test(anu_bac~etiqueta_pandemia,data = rentabilidadAnu)
+# 
+# data <- rentabilidadAnu
+# resultados <- c()
+# # Realizar la prueba ADF para cada fondo
+# for (i in 2:7) {
+#   # Realizar la prueba ADF
+#   adf_result <- adf.test(data[, i] ~ etiqueta_pandemia)
+#   # Extraer el valor p y el estadístico de la prueba
+#   p_value <- adf_result$p.value
+#   test_statistic <- adf_result$statistic
+#   # Almacenar los resultados
+#   resultados <- c(resultados, c(p_value, test_statistic))
+# }
+# 
+# # Crear una tabla LaTeX con los resultados
+# tabla_latex <- matrix(resultados, ncol = 2, byrow = TRUE)
+# colnames(tabla_latex) <- c("Valor p", "Estadístico ADF")
+# rownames(tabla_latex) <- toupper(substring(colnames(data)[2:7], first = 5))
+# 
+# # Imprimir la tabla LaTeX
+# print(xtable(tabla_latex, caption = "Resultados de la prueba ADF para las columnas 2 a 7 de rentabilidadAnu."), 
+#       caption.placement = "top", 
+#       include.rownames = TRUE, 
+#       include.colnames = TRUE, 
+#       table.placement = "h")
+
+```
+
+```{r F test}
+#Test de Varianza F
+# vartest <- var.test(anu_bac~etiqueta_pandemia,data = rentabilidadAnu)
+# vartest$p.value
+```
+
+```{r KS test}
+#Kolmogotov-Smirnov test
+ks.test(anu_bac~etiqueta_pandemia,data = rentabilidadAnu)
+
+
+
+```
+
+```{r}
+#Test Mann-Whitley es una prueba no paramétrica que se utiliza para comparar las medianas de dos grupos independientes.
+wilcox.test(anu_bac~etiqueta_pandemia,data = rentabilidadAnu)
+```
+
+
+```{r Tabla de pruebas}
+etiquetas <- rep("no_pandemia", 180)
+etiquetas[133:177] <- "pandemia"
+
+# Agrego dicha columna nueva
+rentabilidadAnu$etiqueta_pandemia <- etiquetas
+
+# Filtra los datos para separar los periodos de pandemia y no pandemia
+rentabilidad_pandemia <- rentabilidadAnu %>% filter(etiqueta_pandemia == "pandemia")
+rentabilidad_no_pandemia <- rentabilidadAnu %>% filter(etiqueta_pandemia == "no_pandemia")
+
+# rentabilidad_pandemia <- rentabilidad_pandemia %>% mutate(etiqueta_pandemia =  if(any(rentabilidad_pandemia$etiqueta_pandemia == "Pandemia"))) 
+
+# Realiza las pruebas para las columnas 2 a 7
+resultados <- data.frame()
+for (i in 2:7) {
+  # Prueba t.test
+  t_test_pandemia <- t.test(rentabilidad_pandemia[, i], rentabilidad_no_pandemia[, i])
+
+  f_test_pandemia <- var.test(rentabilidad_pandemia[, i], rentabilidad_no_pandemia[, i])
+  
+  # Prueba KS test
+  ks_test_pandemia <- ks.test(rentabilidad_pandemia[, i], rentabilidad_no_pandemia[, i])
+  
+  # Prueba wilcox.test
+  wilcox_test_pandemia <- wilcox.test(rentabilidad_pandemia[, i], rentabilidad_no_pandemia[, i])
+
+  # Agrega los resultados a la tabla
+  resultados <- rbind(resultados, c(
+    Variable =  toupper(substring(colnames(data)[i], first = 5)),
+    T_test_Pandemia = t_test_pandemia$p.value,
+    f_test_pandemia = f_test_pandemia$p.value,
+    KS_test_Pandemia = ks_test_pandemia$p.value,
+    Wilcox_test_Pandemia = wilcox_test_pandemia$p.value
+  ))
+}
+
+colnames(resultados) <- c("Variable", "T_test", "F_test", "KS_test", "Wilcox_test")
+
+# Imprime la tabla de resultados
+# print(resultados)
+
+# Imprimir la tabla LaTeX
+print(xtable((resultados), caption = "Resultados de las pruebas"),
+      caption.placement = "top",
+      include.rownames = F,
+      include.colnames = T,
+      table.placement = "h")
+```
+
+
+
+
