@@ -246,41 +246,7 @@ dev.off()
 
 # Resultados
 
-## Clasficación binaria
 
-```{r Clasificacion binaria}
-# Cargar las bibliotecas necesarias
-library(pROC)
-
-# Dividir los datos en conjuntos de entrenamiento y prueba
-set.seed(123)
-# trainIndex <- sample(1:nrow(rentabilidadAnu), 0.7 * nrow(rentabilidadAnu))
-data_train <- rentabilidadAnu[1:90, ]
-data_test <- rentabilidadAnu[91:180, ]
-
-# Crear una variable objetivo binaria (por ejemplo, clasificar si 'anu_bac' es mayor o igual al 0)
-data_train$binary_target <- ifelse(data_train$anu_bac >= 0, 1, 0)
-data_test$binary_target <- ifelse(data_test$anu_bac >= 0, 1, 0)
-
-# Construir un modelo de clasificación binaria (por ejemplo, regresión logística)
-model <- glm(binary_target ~ ., data = data_train, family = binomial)
-
-# Realizar predicciones en los datos de prueba
-predictions <- predict(model, newdata = data_test, type = "response")
-
-# Crear una matriz de confusión
-conf_matrix <- table(Actual = data_test$binary_target, Predicted = ifelse(predictions > 0.5, 1, 0))
-
-# Generar una curva ROC con etiquetas en español
-roc_curve <- roc(data_test$binary_target, predictions)
-plot(roc_curve, main = "Curva ROC",
-     xlab = "Tasa de Falsos Positivos (1 - Especificidad)",
-     ylab = "Tasa de Verdaderos Positivos (Sensibilidad)")
-     # col.main = "blue",
-     # col.lab = "blue",
-     # col = "blue")
-
-```
 
 ```{r Autocorrelacion}
 pdf("acf.pdf")
@@ -637,6 +603,101 @@ print(xtable((resultados), caption = "Resultados de las pruebas"),
       caption.placement = "top",
       include.rownames = F,
       include.colnames = T,
+      table.placement = "h")
+```
+
+```{r Chi cuadrado con lag}
+# Chi cuadrado con lag
+
+# Crear columnas de lag para cada fondo
+lag_columns <- lapply(rentabilidadAnu[, 2:7], function(x) c(rep(NA, 5), head(x, -5)))
+
+
+lagged_rentabilidadAnu <- cbind(rentabilidadAnu[, 2:7], lag_columns)
+
+# Eliminar filas con NA resultantes del rezago
+lagged_rentabilidadAnu <- na.omit(lagged_rentabilidadAnu)
+
+
+cero <- min(rentabilidadAnu[, 2:7]) %>% abs()
+lagged_rentabilidadAnu <- lagged_rentabilidadAnu + cero 
+
+# Realizar la prueba de chi-cuadrado
+(resultado_chi2 <- chisq.test(lagged_rentabilidadAnu))
+
+# Imprimir los resultados
+# print(resultado_chi2)
+
+# En este código, se crean columnas de lag para cada fondo en la matriz "rentabilidadAnu", donde los valores rezagados corresponden a los rendimientos de los cinco meses anteriores. Luego, se realiza la prueba de chi-cuadrado utilizando la función chisq.test en la matriz resultante.
+# 
+# Recuerda ajustar el código según la estructura exacta de tus datos y la información disponible en la matriz "rentabilidadAnu". Este es un ejemplo básico, y la interpretación de los resultados de la prueba de chi-cuadrado dependerá de la naturaleza específica de tus datos y tu pregunta de investigación.
+
+```
+
+```{r Seasonal Boxplot}
+library(tseries)
+
+d <- 12
+data <- rentabilidadAnu[,2:7] %>% ts(frequency = d)
+
+# png("SeasonalBox.png", width = 800, height = 250)
+pdf("SeasonalBox.pdf", width = 10)
+par(mfrow = c(2, 3))
+for (i in 1:6) {
+  entidad <- toupper(substring(colnames(data)[i], first = 5))
+  boxplot(data[,i] ~ cycle(data), xlab = "Mes",
+        ylab = paste("Rendimiento", entidad),
+        col = plasma(d))
+  # boxList[i] <- boxPlot #append(boxList,list())
+}
+dev.off()
+
+# data[1] %>% ggseasonplot()
+
+
+# boxArray <- grid.arrange(grobs = boxList, ncol = 2)
+# grid.text(
+#   x = 0.5,  # Adjust the x-coordinate to center the caption
+#   y = 0.01,# Adjust the y-coordinate to set the position of the caption
+#   label = "Fuente: Elaboración propia con datos de SUPEN.",
+#   just = "right"
+# )
+
+
+
+
+
+# boxplot(train_tseries ~ cycle(train_tseries), xlab = ("Mes"), ylab = "Temperatura", col = plasma(12))
+# title(sub = "Fuente: Elaboración propia con datos de NASA", adj = 0)
+```
+
+
+```{r}
+# data <- cbind(rentabilidadAnu$mes,)
+data <- lag(rentabilidadAnu, 5L) %>% remove_empty()
+resultados <- c()
+# Realizar la prueba ADF para cada fondo
+for (i in 2:7) {
+  # Realizar la prueba ADF
+  (adf_result <- adf.test(data[, i]))
+  adf_result %>% print()
+  # Extraer el valor p y el estadístico de la prueba
+  p_value <- adf_result$p.value
+  test_statistic <- adf_result$statistic
+  # Almacenar los resultados
+  resultados <- c(resultados, c(p_value, test_statistic))
+}
+
+# Crear una tabla LaTeX con los resultados
+tabla_latex <- matrix(resultados, ncol = 2, byrow = TRUE)
+colnames(tabla_latex) <- c("Valor p", "Estadístico ADF")
+rownames(tabla_latex) <- toupper(substring(colnames(data)[2:7], first = 5))
+
+# Imprimir la tabla LaTeX
+print(xtable(tabla_latex, caption = "Resultados de la prueba ADF para las columnas 2 a 7 de rentabilidadAnu tomando un resago de 5"), 
+      caption.placement = "top", 
+      include.rownames = TRUE, 
+      include.colnames = TRUE, 
       table.placement = "h")
 ```
 
